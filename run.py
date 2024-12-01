@@ -149,7 +149,7 @@ def segment_by_city(data, variable, cities, output_dir):
     grouped = data.groupby("sitename")
     for city, group in grouped:
         os.makedirs(f"{output_dir}/{city}", exist_ok=True)
-        city_path = os.path.join(output_dir, f"{city}\{city}_{variable}.csv")
+        city_path = os.path.join(output_dir, f"{city}/{city}_{variable}.csv")
         group = validate_data_format(group, variable)
         group[variable].to_csv(city_path, index=True)
         print(f"Saved data for {city} to {city_path}")
