@@ -19,8 +19,8 @@ from joblib import Parallel, delayed
 import json
 import warnings
 import random
-import kagglehub
-
+import subprocess
+import zipfile
 
 warnings.filterwarnings("ignore")
 SEED = 42
@@ -34,18 +34,42 @@ torch.cuda.manual_seed_all(SEED)
 
 
 def load_dataset(file_path):
-    kaggle_dataset_id = "taweilo/taiwan-air-quality-data-20162024"
+    """
+    Load the dataset from a file. If the file doesn't exist, download and extract it.
+    """
     if not os.path.exists(file_path):
-        print(f"Dataset not found at {file_path}. Downloading from Kaggle...")
-        download_path = kagglehub.dataset_download(
-            kaggle_dataset_id
+        print(f"Dataset not found at {file_path}. Downloading and extracting...")
+        download_url = "https://www.kaggle.com/api/v1/datasets/download/taweilo/taiwan-air-quality-data-20162024"
+        zip_file_path = os.path.expanduser(
+            "~/Downloads/taiwan-air-quality-data-20162024.zip"
         )
-        print(f"Dataset downloaded and extracted to: {download_path}")
-        file_path = download_path+"/air_quality.csv"
-    else:
-        raise FileNotFoundError(f"Dataset not found at {file_path}")
+        download_dir = os.path.dirname(file_path)
 
-    print("Loading dataset...")
+        # Download the file using curl
+        os.makedirs(download_dir, exist_ok=True)
+        subprocess.run(["curl", "-L", "-o", zip_file_path, download_url], check=True)
+
+        # Extract the ZIP file
+        with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+            zip_ref.extractall(download_dir)
+
+        print(f"Dataset extracted to {download_dir}")
+
+        # Assuming the dataset has a specific file within the extracted folder
+        extracted_file = os.path.join(
+            download_dir, "air_quality.csv"
+        )  # Change to the actual file name
+        if not os.path.exists(extracted_file):
+            raise FileNotFoundError(
+                f"Expected file {extracted_file} not found in extracted archive."
+            )
+
+        os.rename(
+            extracted_file, file_path
+        )  # Move/rename extracted file to the expected location
+
+    # Load the dataset
+    print(f"Loading dataset from {file_path}...")
     data = pd.read_csv(file_path)
     print(f"Dataset loaded with {data.shape[0]} rows and {data.shape[1]} columns.")
     return data
