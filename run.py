@@ -19,7 +19,7 @@ from joblib import Parallel, delayed
 import json
 import warnings
 import random
-import subprocess
+import requests
 import zipfile
 
 warnings.filterwarnings("ignore")
@@ -45,9 +45,17 @@ def load_dataset(file_path):
         )
         download_dir = os.path.dirname(file_path)
 
-        # Download the file using curl
+        # Create the download directory if it doesn't exist
         os.makedirs(download_dir, exist_ok=True)
-        subprocess.run(["curl", "-L", "-o", zip_file_path, download_url], check=True)
+
+        # Download the file using requests
+        with requests.get(download_url, stream=True) as response:
+            response.raise_for_status()
+            with open(zip_file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        print(f"Dataset downloaded to {zip_file_path}")
 
         # Extract the ZIP file
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
