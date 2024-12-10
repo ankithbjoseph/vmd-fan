@@ -1,6 +1,11 @@
 import torch
 import torch.nn as nn
-import numpy as np
+
+
+SEED = 42
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
 
 
 class FANLayer(nn.Module):
@@ -37,7 +42,3 @@ class FANForecastingModel(nn.Module):
         x = self.fan_layer(x)
         x = self.output_layer(x)
         return x
-
-
-
-

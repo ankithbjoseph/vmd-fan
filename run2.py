@@ -9,6 +9,7 @@ from sktime.split import temporal_train_test_split
 from pmdarima import auto_arima
 from statsmodels.tsa.arima.model import ARIMA
 import torch
+import logging
 import torch.nn as nn
 import numpy as np
 from itertools import product
@@ -18,32 +19,33 @@ from models.BaseNN import BaselineNN
 from joblib import Parallel, delayed
 import json
 import warnings
-import random
-import kagglehub
 
 
 warnings.filterwarnings("ignore")
-SEED = 42
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
+
+
+def save_plot(data, title, xlabel, ylabel, save_path, visualize):
+    """
+    Save a plot to the specified directory if visualize is True.
+    """
+    if visualize:
+        plt.figure(figsize=(10, 6))
+        plt.plot(data, marker="o")
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.grid()
+        plt.tight_layout()
+        plt.savefig(save_path)
+        plt.close()
+        print(f"Plot saved to {save_path}")
 
 
 def load_dataset(file_path):
-    kaggle_dataset_id = "taweilo/taiwan-air-quality-data-20162024"
-    if not os.path.exists(file_path):
-        print(f"Dataset not found at {file_path}. Downloading from Kaggle...")
-        download_path = kagglehub.dataset_download(
-            kaggle_dataset_id
-        )
-        print(f"Dataset downloaded and extracted to: {download_path}")
-        file_path = download_path+"/air_quality.csv"
-    else:
-        raise FileNotFoundError(f"Dataset not found at {file_path}")
+    """
+    Load dataset from the given file path
+
+    """
 
     print("Loading dataset...")
     data = pd.read_csv(file_path)
@@ -51,7 +53,7 @@ def load_dataset(file_path):
     return data
 
 
-def apply_eda(data):
+def apply_eda(data, output_dir, visualize):
     """
     Perform exploratory data analysis on the dataset and generate visualizations if enabled.
     """
@@ -63,6 +65,17 @@ def apply_eda(data):
 
     print("\nUnique Values in 'sitename':", data["sitename"].nunique())
 
+    if visualize:
+        os.makedirs(output_dir, exist_ok=True)
+        save_plot(
+            data["aqi"],
+            "AQI Time Series",
+            "Date",
+            "AQI",
+            os.path.join(output_dir, "eda_aqi_timeseries.png"),
+            visualize,
+        )
+
 
 def clean_data(data, variable, output_dir, visualize):
     """
@@ -71,15 +84,24 @@ def clean_data(data, variable, output_dir, visualize):
     """
     print("\nCleaning data...")
     data = data[["date", "sitename", variable]].copy()
-    data[variable] = pd.to_numeric(data[variable], errors="coerce")
     data = data.dropna(subset=[variable])
     data = data[data[variable] > 0]
     print(f"Data cleaned. Remaining rows: {data.shape[0]}")
 
+    if visualize:
+        os.makedirs(output_dir, exist_ok=True)
+        save_plot(
+            data[variable],
+            f"Cleaned {variable} Time Series",
+            "Date",
+            variable,
+            os.path.join(output_dir, f"cleaned_{variable}_timeseries.png"),
+            visualize,
+        )
     return data
 
 
-def validate_data_format(data):
+def validate_data_format(data, variable):
     """
     Validate input data format for sktime compatibility.
 
@@ -115,7 +137,7 @@ def validate_data_format(data):
     return data
 
 
-def segment_by_city(data, variable, cities, output_dir, visualize):
+def segment_by_city(data, variable, cities, output_dir):
     """
     Segment data by 'sitename' and save each city's data to separate CSV files.
 
@@ -123,41 +145,14 @@ def segment_by_city(data, variable, cities, output_dir, visualize):
     print("\nSegmenting data by city...")
 
     cities_list = cities.split(",") if cities else data["sitename"].unique()
-    final_city_list = []
     data = data[data["sitename"].isin(cities_list)]
     grouped = data.groupby("sitename")
     for city, group in grouped:
-        print(f"\nCity: {city}")
         os.makedirs(f"{output_dir}/{city}", exist_ok=True)
         city_path = os.path.join(output_dir, f"{city}/{city}_{variable}.csv")
-        save_path = os.path.join(output_dir, f"{city}/{city}_{variable}_ts.png")
-        group = validate_data_format(group)
-
-        if group.shape[0] > 60000:
-            final_city_list.append(city)
-            group[variable].to_csv(city_path, index=True)
-            print(f"Remaining rows: {group.shape[0]}")
-
-            if visualize:
-                if not os.path.exists(save_path):
-                    plt.figure(figsize=(10, 6))
-                    plt.plot(
-                        group.index, group[variable], label="timeseries", color="blue"
-                    )
-                    plt.title(f"Time Series of {variable.upper()} (city: {city})")
-                    plt.xlabel("Date")
-                    plt.ylabel(variable)
-                    plt.grid(True)
-                    # plt.legend()
-                    plt.savefig(save_path, dpi=600)
-                    plt.close()
-                    print(f"Plot saved to {save_path}")
-
-            print(f"Saved data for {city} to {city_path}")
-        else:
-            print(f"Skipped City:{city} due to data points less than 60000")
-
-    return final_city_list
+        group = validate_data_format(group, variable)
+        group[variable].to_csv(city_path, index=True)
+        print(f"Saved data for {city} to {city_path}")
 
 
 def create_sequences(data, window_size, forecast_horizon):
@@ -186,7 +181,14 @@ def forecast_data(
 
     if visualize:
         os.makedirs(output_dir, exist_ok=True)
-        pass
+        save_plot(
+            predictions.flatten(),
+            "Forecasted AQI",
+            "Time Steps",
+            "AQI",
+            os.path.join(output_dir, "forecasted_aqi.png"),
+            visualize,
+        )
     return predictions
 
 
@@ -198,47 +200,15 @@ def forecast_imfs_data(imfs, fan_models, window_size, forecast_horizon, device):
         X_test, _ = create_sequences(imf_data, window_size, forecast_horizon)
         X_test = X_test.to(device)
         with torch.no_grad():
-            pred = model(X_test).cpu().numpy()
+            pred = model(X_test).cpu().numpy()  # Shape: (num_samples, forecast_horizon)
 
-        pred_flattened = pred.sum(axis=1)
+        # Flatten predictions into a single sequence for compatibility
+        pred_flattened = pred.sum(axis=1)  # Aggregate predictions over the horizon
         predictions[imf] = pred_flattened
 
     return pd.DataFrame(
         predictions, index=imfs.index[window_size + forecast_horizon - 1 :]
     )
-
-
-def plot_actual_vs_predicted(
-    actual, predicted, output_dir, city_name, variable_name, model_name, parameters
-):
-    """
-    Plots actual vs. predicted values and saves the plot.
-
-    """
-    savedir = f"{output_dir}/{city_name}/plots/{model_name}"
-    os.makedirs(savedir, exist_ok=True)
-
-    values = [param.split(":")[1] for param in parameters.split(",")]
-    p = "_".join(values)
-    plot_title = f"{model_name} Actual vs Predicted {variable_name} (City: {city_name})"
-    plot_filename = f"{savedir}/{city_name}_{variable_name}_{p}_result.png"
-
-    # Plot
-    plt.figure(figsize=(12, 6))
-    plt.plot(
-        range(len(predicted)), predicted, label="Prediction", color="blue", alpha=1
-    )
-    plt.plot(range(len(actual)), actual, label="Truth", color="red", alpha=1)
-    plt.title(plot_title)
-    plt.xlabel("Datetime/hour")
-    plt.ylabel(variable_name)
-    plt.legend()
-    plt.grid(True)
-
-    # Save and show the plot
-    plt.savefig(plot_filename, dpi=600)
-    plt.close()  # Close the plot to free memory
-    print(f"Plot saved to {plot_filename}")
 
 
 def apply_vmd(city, data, variable, parameter_grid, output_dir, num_jobs, visualize):
@@ -259,9 +229,8 @@ def apply_vmd(city, data, variable, parameter_grid, output_dir, num_jobs, visual
         # print(f"Experiment: [ City:{city}, {params} ]")
         sub_dir = os.path.join(save_dir, f"K_{K}")
         os.makedirs(sub_dir, exist_ok=True)
-        file_name = f"{city}_K_{K}_alpha_{alpha}_tau_{tau:.0e}_DC_{DC}_tol_{tol:.0e}"
-        full_path = os.path.join(sub_dir, file_name + ".csv")
-        plot_path = os.path.join(sub_dir, file_name + ".png")
+        file_name = f"alpha_{alpha}_tau_{tau:.0e}_DC_{DC}_tol_{tol:.0e}.csv"
+        full_path = os.path.join(sub_dir, file_name)
 
         if os.path.exists(full_path):
             print(f"Saved VMD decomposition for {city} with parameters: {params}")
@@ -277,61 +246,15 @@ def apply_vmd(city, data, variable, parameter_grid, output_dir, num_jobs, visual
             print(f"Saved VMD decomposition for {city} with parameters: {params}")
 
             if visualize:
-                if not os.path.exists(plot_path):
-                    plt.figure(
-                        figsize=(12, K * 1.5)
-                    )  # Adjust height dynamically for readability
-                    total_subplots = K + 1  # K IMFs + Original signal
-
-                    # Plot original data on the first subplot
-                    plt.subplot(total_subplots, 1, 1)
-                    plt.plot(data.index, data["aqi"], color="red")
-                    plt.text(
-                        -0.035,
-                        0.5,
-                        "Original",
-                        transform=plt.gca().transAxes,
-                        fontsize=10,
-                        ha="right",
-                        rotation="vertical",
-                        va="center",
+                for imf in decomposed_data.columns:
+                    save_plot(
+                        decomposed_data[imf],
+                        f"{imf} Decomposition for {city}",
+                        "Date",
+                        "Value",
+                        os.path.join(sub_dir, f"{imf}_decomposition.png"),
+                        visualize,
                     )
-                    plt.grid(True)
-
-                    # Plot each IMF in its own subplot
-                    for i, column in enumerate(
-                        decomposed_data.columns, start=2
-                    ):  # Start from 2nd subplot
-                        plt.subplot(total_subplots, 1, i)
-                        plt.plot(
-                            decomposed_data.index, decomposed_data[column], color="blue"
-                        )
-                        plt.text(
-                            -0.035,
-                            0.5,
-                            column,
-                            transform=plt.gca().transAxes,
-                            fontsize=10,
-                            ha="right",
-                            rotation="vertical",
-                            va="center",
-                        )
-                        plt.grid(True)
-
-                    # Add a single x-axis label for the entire figure
-                    plt.gcf().text(0.5, 0.01, "Datetime/hour", fontsize=12, ha="center")
-
-                    # Add a central title for the entire figure
-                    plt.suptitle(
-                        f"VMD Decomposition for City:'{city}' ({variable.upper()}) (Parameters: K={K}, alpha={alpha}, tau={tau}, tol={tol})",
-                        fontsize=14,
-                        y=0.95,
-                    )
-
-                    plt.tight_layout(rect=[0, 0.03, 1, 0.93])
-                    plt.savefig(plot_path, dpi=600)
-                    plt.close()
-
         except Exception as e:
             print(f"Error processing {city} with parameters {params}: {e}")
 
@@ -345,7 +268,7 @@ def apply_vmd(city, data, variable, parameter_grid, output_dir, num_jobs, visual
     )
 
 
-def load_decomposition_file(base_dir, K, alpha, tau, DC, tol, city):
+def load_decomposition_file(base_dir, K, alpha, tau, DC, tol):
     """
     function to load a decomposition file based on given parameters.
 
@@ -355,7 +278,7 @@ def load_decomposition_file(base_dir, K, alpha, tau, DC, tol, city):
         tau = "0e+00"
 
     K_folder = os.path.join(base_dir, f"K_{K}")
-    filename = f"{city}_K_{K}_alpha_{alpha}_tau_{str(tau)}_DC_{DC}_tol_{str(tol)}.csv"
+    filename = f"alpha_{alpha}_tau_{str(tau)}_DC_{DC}_tol_{str(tol)}.csv"
     file_path = os.path.join(K_folder, filename)
 
     if not os.path.exists(file_path):
@@ -372,21 +295,14 @@ def load_decomposition_file(base_dir, K, alpha, tau, DC, tol, city):
 
 
 def apply_fan(
-    city,
-    vmd,
-    parameter_grid,
-    output_dir,
-    num_jobs,
-    visualize,
-    forecast_horizon,
-    variable,
+    city, vmd, parameter_grid, output_dir, num_jobs, visualize, forecast_horizon
 ):
     """
     Apply FAN to each IMF of a city's data using the specified parameters.
     """
 
     num_epochs = 50
-    batch_size = 256
+    batch_size = 512
     forecast_horizon = forecast_horizon
 
     results_file = f"{output_dir}/results.csv"
@@ -448,9 +364,7 @@ def apply_fan(
             base_dir = f"./{output_dir}/{city}/vmd_decompositions"
 
             try:
-                imfs_data = load_decomposition_file(
-                    base_dir, K, alpha, tau, DC, tol, city
-                )
+                imfs_data = load_decomposition_file(base_dir, K, alpha, tau, DC, tol)
                 imfs_train_data, imfs_test_data = temporal_train_test_split(
                     imfs_data, test_size=0.2
                 )
@@ -466,9 +380,7 @@ def apply_fan(
 
                 train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
                 train_loader = torch.utils.data.DataLoader(
-                    train_dataset,
-                    batch_size=batch_size,
-                    shuffle=False,
+                    train_dataset, batch_size=batch_size, shuffle=False
                 )
 
                 model = FANForecastingModel(
@@ -495,7 +407,6 @@ def apply_fan(
             imf_predictions = forecast_imfs_data(
                 imfs_test_data, fan_models, window_size, forecast_horizon, device
             )
-
             final_forecast = imf_predictions.sum(axis=1)
 
             # Metrics
@@ -518,17 +429,6 @@ def apply_fan(
             with open(results_file, "a", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow([city, Model, parameters, mae, mse, rmse, mape])
-
-            if visualize:
-                plot_actual_vs_predicted(
-                    actual_aqi,
-                    predicted_aqi,
-                    output_dir,
-                    city,
-                    variable,
-                    Model,
-                    parameters,
-                )
 
         param_combinations = [
             (window_size, p_ratio, fan_units, learning_rate, K, alpha, tau, DC, tol)
@@ -584,9 +484,7 @@ def apply_fan(
             )
             train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
             train_loader = torch.utils.data.DataLoader(
-                train_dataset,
-                batch_size=batch_size,
-                shuffle=False,
+                train_dataset, batch_size=batch_size, shuffle=False
             )
 
             # Initialize model
@@ -639,17 +537,6 @@ def apply_fan(
                 writer = csv.writer(f)
                 writer.writerow([city, Model, parameters, mae, mse, rmse, mape])
 
-            if visualize:
-                plot_actual_vs_predicted(
-                    actual_aqi,
-                    predicted_aqi,
-                    output_dir,
-                    city,
-                    variable,
-                    Model,
-                    parameters,
-                )
-
             return params, mae, mse, rmse, mape
 
         Model = "FAN"
@@ -678,20 +565,13 @@ def apply_fan(
         )
 
 
-def apply_baseNN(
-    city,
-    vmd,
-    parameter_grid,
-    output_dir,
-    num_jobs,
-    forecast_horizon,
-    variable,
-    visualize,
-):
+def apply_baseNN(city, vmd, parameter_grid, output_dir, num_jobs, forecast_horizon):
     """
     Apply BaseNN to each IMF of a city's data using the specified parameters.
     """
-    hidden_dim = 32
+    window_size = 12
+    hidden_dim = 64
+    learning_rate = 0.001
     num_epochs = 50
     batch_size = 512
     forecast_horizon = forecast_horizon
@@ -731,8 +611,6 @@ def apply_baseNN(
             tol,
             city,
             Model,
-            variable,
-            visualize,
         ):
             parameters = f"K:{K},alpha:{alpha},tau:{tau},DC:{DC},tol:{tol},window_size:{window_size},hidden_dim:{hidden_dim},learning_rate:{learning_rate},forecast_horizon:{forecast_horizon}"
 
@@ -757,9 +635,7 @@ def apply_baseNN(
             base_dir = f"./{output_dir}/{city}/vmd_decompositions"
 
             try:
-                imfs_data = load_decomposition_file(
-                    base_dir, K, alpha, tau, DC, tol, city
-                )
+                imfs_data = load_decomposition_file(base_dir, K, alpha, tau, DC, tol)
                 imfs_train_data, imfs_test_data = temporal_train_test_split(
                     imfs_data, test_size=0.2
                 )
@@ -775,9 +651,7 @@ def apply_baseNN(
 
                 train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
                 train_loader = torch.utils.data.DataLoader(
-                    train_dataset,
-                    batch_size=batch_size,
-                    shuffle=False,
+                    train_dataset, batch_size=batch_size, shuffle=False
                 )
 
                 model = BaselineNN(
@@ -826,35 +700,13 @@ def apply_baseNN(
                 writer = csv.writer(f)
                 writer.writerow([city, Model, parameters, mae, mse, rmse, mape])
 
-            if visualize:
-                plot_actual_vs_predicted(
-                    actual_aqi,
-                    predicted_aqi,
-                    output_dir,
-                    city,
-                    variable,
-                    Model,
-                    parameters,
-                )
-
         param_combinations = [
-            (
-                window_size,
-                hidden_dim,
-                learning_rate,
-                K,
-                alpha,
-                tau,
-                DC,
-                tol,
-            )
+            (window_size, hidden_dim, learning_rate, K, alpha, tau, DC, tol)
             for K in parameter_grid["VMD"]["K"]
             for alpha in parameter_grid["VMD"]["alpha"]
             for tau in parameter_grid["VMD"]["tau"]
             for DC in parameter_grid["VMD"]["DC"]
             for tol in parameter_grid["VMD"]["tol"]
-            for learning_rate in parameter_grid["BaseNN"]["learning_rate"]
-            for window_size in parameter_grid["BaseNN"]["window_size"]
         ]
 
         # Use joblib to parallelize the processing
@@ -870,107 +722,72 @@ def apply_baseNN(
                 tol,
                 city,
                 Model,
-                variable,
-                visualize,
             )
             for window_size, hidden_dim, learning_rate, K, alpha, tau, DC, tol in param_combinations
         )
 
     else:
         # Original BaseNN without VMD
-        def process_basenn(window_size, hidden_dim, learning_rate, city):
-            Model = "BaseNN"
-            parameters = f"window_size:{window_size}, hidden_dim:{hidden_dim}, learning_rate:{learning_rate}, forecast_horizon:{forecast_horizon}"
+        Model = "BaseNN"
+        parameters = f"window_size:{window_size}, hidden_dim:{hidden_dim}, learning_rate:{learning_rate}, forecast_horizon:{forecast_horizon}"
 
-            if (city, Model, parameters) in existing_configs:
-                print(
-                    f"Skipping already processed configuration for {city}, {Model}: {parameters}"
-                )
-                return
-
-            file_name = f"{city}/{city}_aqi.csv"
-            file_path = os.path.join(output_dir, file_name)
-
-            try:
-                city_data = pd.read_csv(file_path)
-            except FileNotFoundError:
-                return
-
-            train_data, test_data = temporal_train_test_split(city_data, test_size=0.2)
-            X_train, y_train = create_sequences(
-                train_data["aqi"].values, window_size, forecast_horizon
+        if (city, Model, parameters) in existing_configs:
+            print(
+                f"Skipping already processed configuration for {city}, {Model}: {parameters}"
             )
-            train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
-            train_loader = torch.utils.data.DataLoader(
-                train_dataset,
-                batch_size=batch_size,
-                shuffle=False,
-            )
+            return
 
-            model = BaselineNN(
-                input_dim=window_size,
-                hidden_dim=hidden_dim,
-                output_dim=forecast_horizon,
-            ).to(device)
-            criterion = nn.MSELoss()
-            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        file_name = f"{city}/{city}_aqi.csv"
+        file_path = os.path.join(output_dir, file_name)
 
-            for epoch in range(num_epochs):
-                model.train()
-                for batch_X, batch_y in train_loader:
-                    batch_X, batch_y = batch_X.to(device), batch_y.to(device)
-                    optimizer.zero_grad()
-                    outputs = model(batch_X)
-                    loss = criterion(outputs, batch_y)
-                    loss.backward()
-                    optimizer.step()
+        try:
+            city_data = pd.read_csv(file_path)
+        except FileNotFoundError:
+            return
 
-            X_test, y_test = create_sequences(
-                test_data["aqi"].values, window_size, forecast_horizon
-            )
-            X_test, y_test = X_test.to(device), y_test.to(device)
-
-            model.eval()
-            with torch.no_grad():
-                predicted_aqi = model(X_test).cpu().numpy()
-                actual_aqi = y_test.cpu().numpy()
-
-            mae = mean_absolute_error(actual_aqi, predicted_aqi)
-            mse = mean_squared_error(actual_aqi, predicted_aqi)
-            rmse = mse**0.5
-            mape = np.mean(np.abs((actual_aqi - predicted_aqi) / actual_aqi)) * 100
-
-            with open(results_file, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([city, Model, parameters, mae, mse, rmse, mape])
-
-            if visualize:
-                plot_actual_vs_predicted(
-                    actual_aqi,
-                    predicted_aqi,
-                    output_dir,
-                    city,
-                    variable,
-                    Model,
-                    parameters,
-                )
-
-        param_combinations = [
-            (window_size, hidden_dim, learning_rate)
-            for learning_rate in parameter_grid["BaseNN"]["learning_rate"]
-            for window_size in parameter_grid["BaseNN"]["window_size"]
-        ]
-
-        # Use joblib to parallelize the processing
-        Parallel(n_jobs=num_jobs)(
-            delayed(process_basenn)(
-                window_size,
-                hidden_dim,
-                learning_rate,
-                city,
-            )
-            for window_size, hidden_dim, learning_rate in param_combinations
+        train_data, test_data = temporal_train_test_split(city_data, test_size=0.2)
+        X_train, y_train = create_sequences(
+            train_data["aqi"].values, window_size, forecast_horizon
         )
+        train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=False
+        )
+
+        model = BaselineNN(
+            input_dim=window_size, hidden_dim=hidden_dim, output_dim=forecast_horizon
+        ).to(device)
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+        for epoch in range(num_epochs):
+            model.train()
+            for batch_X, batch_y in train_loader:
+                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+                optimizer.zero_grad()
+                outputs = model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+
+        X_test, y_test = create_sequences(
+            test_data["aqi"].values, window_size, forecast_horizon
+        )
+        X_test, y_test = X_test.to(device), y_test.to(device)
+
+        model.eval()
+        with torch.no_grad():
+            predictions = model(X_test).cpu().numpy()
+            actual_aqi = y_test.cpu().numpy()
+
+        mae = mean_absolute_error(actual_aqi, predictions)
+        mse = mean_squared_error(actual_aqi, predictions)
+        rmse = mse**0.5
+        mape = np.mean(np.abs((actual_aqi - predictions) / actual_aqi)) * 100
+
+        with open(results_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([city, Model, parameters, mae, mse, rmse, mape])
 
 
 def apply_arima(
@@ -1026,7 +843,7 @@ def apply_arima(
     # Log results
     with open(results_file, "a") as f:
         f.write(
-            f"{city},ARIMA,'{best_params}',{mae:.2f},{mse:.2f},{rmse:.2f},{mape:.2f}\n"
+            f"{city},ARIMA,{best_params},{mae:.2f},{mse:.2f},{rmse:.2f},{mape:.2f}%\n"
         )
 
 
@@ -1072,14 +889,13 @@ def main():
         "--num_jobs", type=int, default=1, help="Number of parallel jobs (default: 1)."
     )
     parser.add_argument(
+        "--forecast_horizon", type=int, default=1, help="Number of steps t forecast"
+    )
+    parser.add_argument(
         "--model", type=str, choices=["FAN", "BaseNN", "ARIMA"], help="Model to apply."
     )
     parser.add_argument(
         "--visualize", action="store_true", help="Generate and save visualizations."
-    )
-
-    parser.add_argument(
-        "--forecast_horizon", type=int, default=1, help="Number of steps to forecast"
     )
 
     args = parser.parse_args()
@@ -1096,19 +912,20 @@ def main():
 
     # EDA
     if args.eda:
-        apply_eda(data)
+        apply_eda(data, args.output_dir, args.visualize)
 
     # Data Cleaning
     data = clean_data(data, args.variable, args.output_dir, args.visualize)
 
     # Segment by city and save
-    cities_list = segment_by_city(
-        data, args.variable, args.cities, args.output_dir, args.visualize
-    )
+    segment_by_city(data, args.variable, args.cities, args.output_dir)
 
     # Apply VMD if enabled
     if args.vmd:
         print("\nStarting VMD...")
+        cities_list = (
+            args.cities.split(",") if args.cities else data["sitename"].unique()
+        )
         for city in cities_list:
             city_file = os.path.join(args.output_dir, f"{city}/{city}_aqi.csv")
             try:
@@ -1132,7 +949,9 @@ def main():
     # Model application
     if args.model == "FAN":
         print("\nStarting FAN...")
-        for city in cities_list:
+        for city in (
+            args.cities.split(",") if args.cities else data["sitename"].unique()
+        ):
             apply_fan(
                 city,
                 args.vmd,
@@ -1141,7 +960,6 @@ def main():
                 args.num_jobs,
                 args.visualize,
                 args.forecast_horizon,
-                args.variable,
             )
     elif args.model == "BaseNN":
         print("\nStarting BaseNN...")
@@ -1155,12 +973,12 @@ def main():
                 args.output_dir,
                 args.num_jobs,
                 args.forecast_horizon,
-                args.variable,
-                args.visualize,
             )
     elif args.model == "ARIMA":
         print("\nStarting ARIMA...")
-        for city in cities_list:
+        for city in (
+            args.cities.split(",") if args.cities else data["sitename"].unique()
+        ):
             city_file = os.path.join(args.output_dir, f"{city}/{city}_aqi.csv")
             try:
                 city_data = pd.read_csv(city_file)

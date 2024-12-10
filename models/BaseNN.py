@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
-import numpy as np
 
+SEED = 42
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
 
 class BaselineNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
