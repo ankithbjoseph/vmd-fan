@@ -39,14 +39,10 @@ def load_dataset(file_path):
     """
     if not os.path.exists(file_path):
         print(f"Dataset not found at {file_path}. Downloading and extracting...")
+        os.makedirs("dataset", exist_ok=True)
         download_url = "https://www.kaggle.com/api/v1/datasets/download/taweilo/taiwan-air-quality-data-20162024"
-        zip_file_path = os.path.expanduser(
-            "~/Downloads/taiwan-air-quality-data-20162024.zip"
-        )
-        download_dir = os.path.dirname(file_path)
+        zip_file_path = "dataset/taiwan-air-quality-data-20162024.zip"
 
-        # Create the download directory if it doesn't exist
-        os.makedirs(download_dir, exist_ok=True)
 
         # Download the file using requests
         with requests.get(download_url, stream=True) as response:
@@ -59,22 +55,18 @@ def load_dataset(file_path):
 
         # Extract the ZIP file
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
-            zip_ref.extractall(download_dir)
+            zip_ref.extractall("dataset")
 
-        print(f"Dataset extracted to {download_dir}")
 
         # Assuming the dataset has a specific file within the extracted folder
-        extracted_file = os.path.join(
-            download_dir, "air_quality.csv"
-        )  # Change to the actual file name
+        extracted_file =  "dataset/air_quality.csv" 
         if not os.path.exists(extracted_file):
             raise FileNotFoundError(
                 f"Expected file {extracted_file} not found in extracted archive."
             )
-
         os.rename(
             extracted_file, file_path
-        )  # Move/rename extracted file to the expected location
+        )  
 
     # Load the dataset
     print(f"Loading dataset from {file_path}...")
