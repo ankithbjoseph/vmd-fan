@@ -656,9 +656,9 @@ def apply_baseNN(
                 test_data["aqi"].values[window_size : window_size + len(predicted_aqi)]
             )
 
-            print(len(predicted_aqi), len(actual_aqi))
-            print(predicted_aqi)
-            print(actual_aqi)
+            # print(len(predicted_aqi), len(actual_aqi))
+            # print(predicted_aqi)
+            # print(actual_aqi)
 
             mae = mean_absolute_error(actual_aqi, predicted_aqi)
             mse = mean_squared_error(actual_aqi, predicted_aqi)
