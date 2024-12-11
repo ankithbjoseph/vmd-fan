@@ -261,8 +261,8 @@ def plot_actual_vs_predicted(
 
     # Plot
     plt.figure(figsize=(12, 6))
-    plt.plot(predicted, label="Prediction", color="blue", alpha=1)
     plt.plot(actual, label="Truth", color="red", alpha=1)
+    plt.plot(predicted, label="Prediction", color="blue", alpha=1)
     plt.title(plot_title)
     plt.xlabel("Datetime/hour")
     plt.ylabel(variable_name)
