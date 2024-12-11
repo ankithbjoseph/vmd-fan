@@ -414,7 +414,7 @@ def apply_baseNN(
     """
     Apply BaseNN to each IMF of a city's data using the specified parameters.
     """
-    hidden_dim = 32
+    hidden_dim = 64
     num_epochs = 50
     batch_size = 512
     forecast_horizon = forecast_horizon
