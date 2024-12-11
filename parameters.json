@@ -1,0 +1,48 @@
+{
+    "VMD": {
+        "K": [
+            3,
+            5,
+            7
+        ],
+        "alpha": [
+            1000,
+            3000
+        ],
+        "tau": [
+            1e-6
+        ],
+        "DC": [
+            false
+        ],
+        "tol": [
+            1e-5,
+            1e-7
+        ]
+    },
+    "FAN": {
+        "window_size": [
+            12
+        ],
+        "learning_rate": [
+            0.001,
+            0.0001
+        ],
+        "p_ratio": [
+            0.15,
+            0.25
+        ],
+        "fan_units": [
+            64
+        ]
+    },
+    "BaseNN": {
+        "window_size": [
+            12
+        ],
+        "learning_rate": [
+            0.001,
+            0.0001
+        ]
+    }
+}
