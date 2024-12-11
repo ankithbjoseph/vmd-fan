@@ -476,7 +476,6 @@ def apply_baseNN(
 
             train_data, test_data = temporal_train_test_split(city_data, test_size=0.2)
 
-            print(test_data)
 
             base_dir = f"./{output_dir}/{city}/vmd_decompositions"
 
@@ -535,9 +534,6 @@ def apply_baseNN(
             actual_aqi = np.array(
                 test_data["aqi"].values[window_size : window_size + len(predicted_aqi)]
             )
-
-            # print(predicted_aqi)
-            # print(len(predicted_aqi))
 
             mae = mean_absolute_error(actual_aqi, predicted_aqi)
             mse = mean_squared_error(actual_aqi, predicted_aqi)
@@ -655,10 +651,6 @@ def apply_baseNN(
             actual_aqi = np.array(
                 test_data["aqi"].values[window_size : window_size + len(predicted_aqi)]
             )
-
-            # print(len(predicted_aqi), len(actual_aqi))
-            # print(predicted_aqi)
-            # print(actual_aqi)
 
             mae = mean_absolute_error(actual_aqi, predicted_aqi)
             mse = mean_squared_error(actual_aqi, predicted_aqi)
