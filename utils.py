@@ -1,4 +1,3 @@
-import argparse
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,8 +5,6 @@ import csv
 from sktime.transformations.series.vmd import VmdTransformer
 from sktime.datatypes import check_raise
 from sktime.split import temporal_train_test_split
-from pmdarima import auto_arima
-from statsmodels.tsa.arima.model import ARIMA
 import torch
 import torch.nn as nn
 import numpy as np
@@ -16,9 +13,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from models.FAN import FANForecastingModel
 from models.BaseNN import BaselineNN
 from joblib import Parallel, delayed
-import json
-import warnings
-import random
 import requests
 import zipfile
 
@@ -475,7 +469,6 @@ def apply_baseNN(
                 raise Exception(f"An error occurred: {e}")
 
             train_data, test_data = temporal_train_test_split(city_data, test_size=0.2)
-
 
             base_dir = f"./{output_dir}/{city}/vmd_decompositions"
 
